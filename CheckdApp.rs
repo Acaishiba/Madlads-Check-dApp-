@@ -16,6 +16,13 @@ pub mod nft_wechat_binding {
     ) -> Result<()> {
         let account = &mut ctx.accounts.binding_account;
 
+        // Verify the NFT mint matches the allowed NFT
+        let registry = &ctx.accounts.binding_registry;
+        require!(
+            ctx.accounts.token_account.mint == registry.allowed_nft_mint,
+            CustomError::InvalidNft
+        );
+
         // Verify user owns the NFT
         require!(ctx.accounts.token_account.amount > 0, CustomError::NoNFT);
 
@@ -69,6 +76,13 @@ pub mod nft_wechat_binding {
         registry.bindings = updated_bindings;
         Ok(())
     }
+
+    /// Update the allowed NFT for binding
+    pub fn update_allowed_nft(ctx: Context<UpdateAllowedNft>, new_allowed_nft: Pubkey) -> Result<()> {
+        let registry = &mut ctx.accounts.binding_registry;
+        registry.allowed_nft_mint = new_allowed_nft;
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -100,6 +114,13 @@ pub struct GlobalCheck<'info> {
     pub token_account_program: UncheckedAccount<'info>,    // Token program account
 }
 
+#[derive(Accounts)]
+pub struct UpdateAllowedNft<'info> {
+    #[account(mut, has_one = admin)]
+    pub binding_registry: Account<'info, BindingRegistry>, // Global binding registry
+    pub admin: Signer<'info>,                              // Admin signing the transaction
+}
+
 #[account]
 pub struct BindingAccount {
     pub owner: Pubkey,      // Owner's address
@@ -110,12 +131,15 @@ pub struct BindingAccount {
 
 #[account]
 pub struct BindingRegistry {
-    pub bindings: Vec<Pubkey>, // All binding accounts' PublicKeys
-    pub admin: Pubkey,         // Admin's address
+    pub bindings: Vec<Pubkey>,  // All binding accounts' PublicKeys
+    pub admin: Pubkey,          // Admin's address
+    pub allowed_nft_mint: Pubkey, // Currently allowed NFT mint address
 }
 
 #[error_code]
 pub enum CustomError {
     #[msg("User does not hold the required NFT")]
     NoNFT,
+    #[msg("This NFT is not allowed for binding")]
+    InvalidNft,
 }
