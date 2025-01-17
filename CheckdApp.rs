@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Token, TokenAccount};
 
-declare_id!("Av142jsr7gKXsDWjVuY9oVz266vKWaqyeD8m1gdZHr4c");
+declare_id!("YourProgramIDHere");
 
 #[program]
 pub mod nft_wechat_binding {
@@ -42,16 +42,19 @@ pub mod nft_wechat_binding {
     /// 删除没有持有NFT的绑定记录
     pub fn global_check(ctx: Context<GlobalCheck>) -> Result<()> {
         let registry = &mut ctx.accounts.binding_registry;
+        let remaining_accounts = ctx.remaining_accounts;
 
         // 遍历所有绑定记录
         registry.bindings.retain(|binding_key| {
-            // 解引用 binding_key
-            let binding_account = ctx.remaining_accounts.iter().find(|acc| acc.key() == *binding_key);
-
-            if let Some(binding_account) = binding_account {
-                let token_account_info = ctx.remaining_accounts.iter().find(|acc| acc.owner == &spl_token::id());
+            // 查找绑定账户
+            let binding_account_info = remaining_accounts.iter().find(|acc| acc.key() == *binding_key);
+            if let Some(binding_account_info) = binding_account_info {
+                // 查找 TokenAccount 信息
+                let token_account_info = remaining_accounts
+                    .iter()
+                    .find(|acc| acc.owner == &spl_token::id() && acc.key() == binding_account_info.key());
                 if let Some(token_account_info) = token_account_info {
-                    // 将 token_account_info 转换为 TokenAccount
+                    // 转换为 TokenAccount
                     if let Ok(token_account) = Account::<TokenAccount>::try_from(token_account_info) {
                         if token_account.amount > 0 {
                             return true; // 持有NFT，保留绑定
@@ -59,7 +62,6 @@ pub mod nft_wechat_binding {
                     }
                 }
             }
-
             false // 未找到有效绑定，删除
         });
 
