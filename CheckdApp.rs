@@ -9,6 +9,15 @@ declare_id!("Av142jsr7gKXsDWjVuY9oVz266vKWaqyeD8m1gdZHr4c");
 pub mod nft_wechat_binding {
     use super::*;
 
+    /// Initialize the BindingRegistry with an allowed NFT mint
+    pub fn initialize_binding_registry(ctx: Context<InitializeBindingRegistry>, allowed_nft_mint: Pubkey) -> Result<()> {
+        let registry = &mut ctx.accounts.binding_registry;
+        registry.bindings = Vec::new(); // Initialize empty bindings
+        registry.admin = *ctx.accounts.admin.key; // Set the admin
+        registry.allowed_nft_mint = allowed_nft_mint; // Set the allowed NFT mint
+        Ok(())
+    }
+
     /// Bind WeChat ID to NFT holder's address
     pub fn bind_wechat_id<'info>(
         ctx: Context<'_, '_, '_, 'info, BindWechatId<'info>>,
@@ -86,12 +95,31 @@ pub mod nft_wechat_binding {
 }
 
 #[derive(Accounts)]
+pub struct InitializeBindingRegistry<'info> {
+    #[account(
+        init,
+        payer = admin,
+        space = 8 + 1024, // Allocate space for the BindingRegistry
+        seeds = [b"binding_registry"],
+        bump
+    )]
+    pub binding_registry: Account<'info, BindingRegistry>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
 pub struct BindWechatId<'info> {
     #[account(mut)]
     pub user: Signer<'info>,                             // User signing the transaction
     #[account(init, payer = user, space = 8 + 32 + 64 + 8 + 32)]
     pub binding_account: Account<'info, BindingAccount>, // Binding record account
-    #[account(mut)]
+    #[account(
+        mut,
+        seeds = [b"binding_registry"],
+        bump
+    )]
     pub binding_registry: Account<'info, BindingRegistry>, // Global binding registry
     #[account(constraint = token_account.amount > 0 @ CustomError::NoNFT)]
     pub token_account: Account<'info, TokenAccount>,     // NFT Token account
