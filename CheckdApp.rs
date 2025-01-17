@@ -1,70 +1,72 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Token, TokenAccount};
 
-declare_id!("YourProgramIDHere");
+use std::collections::HashMap;
+
+declare_id!("Av142jsr7gKXsDWjVuY9oVz266vKWaqyeD8m1gdZHr4c");
 
 #[program]
 pub mod nft_wechat_binding {
     use super::*;
 
-    /// 绑定微信ID到NFT持有地址
-    pub fn bind_wechat_id(ctx: Context<BindWechatId>, wechat_id: String) -> Result<()> {
+    /// Bind WeChat ID to NFT holder's address
+    pub fn bind_wechat_id<'info>(
+        ctx: Context<'_, '_, '_, 'info, BindWechatId<'info>>,
+        wechat_id: String,
+    ) -> Result<()> {
         let account = &mut ctx.accounts.binding_account;
 
-        // 验证用户持有NFT
+        // Verify user owns the NFT
         require!(ctx.accounts.token_account.amount > 0, CustomError::NoNFT);
 
-        // 绑定微信ID
+        // Bind WeChat ID
         account.owner = *ctx.accounts.user.key;
         account.wechat_id = wechat_id.clone();
         account.timestamp = Clock::get()?.unix_timestamp;
         account.nft_mint = ctx.accounts.token_account.mint;
 
-        // 注册绑定记录
+        // Register the binding record
         let registry = &mut ctx.accounts.binding_registry;
         registry.bindings.push(account.key());
 
         Ok(())
     }
 
-    /// 查询微信ID绑定的状态
-    pub fn query_binding(ctx: Context<QueryBinding>, wechat_id: String) -> Result<String> {
+    /// Query the binding status of a WeChat ID
+    pub fn query_binding<'info>(
+        ctx: Context<'_, '_, '_, 'info, QueryBinding<'info>>,
+        wechat_id: String,
+    ) -> Result<String> {
         let account = &ctx.accounts.binding_account;
 
         if account.wechat_id == wechat_id {
-            Ok("已认证".to_string())
+            Ok("Verified".to_string())
         } else {
-            Ok("未认证".to_string())
+            Ok("Not Verified".to_string())
         }
     }
 
-    /// 全局检查功能
-    /// 删除没有持有NFT的绑定记录
-    pub fn global_check(ctx: Context<GlobalCheck>) -> Result<()> {
+    /// Global check to clean up invalid bindings
+    pub fn global_check<'info>(
+        ctx: Context<'_, '_, 'info, 'info, GlobalCheck<'info>>,
+    ) -> Result<()> {
         let registry = &mut ctx.accounts.binding_registry;
-        let remaining_accounts = ctx.remaining_accounts;
 
-        // 遍历所有绑定记录
-        registry.bindings.retain(|binding_key| {
-            // 查找绑定账户
-            let binding_account_info = remaining_accounts.iter().find(|acc| acc.key() == *binding_key);
-            if let Some(binding_account_info) = binding_account_info {
-                // 查找 TokenAccount 信息
-                let token_account_info = remaining_accounts
-                    .iter()
-                    .find(|acc| acc.owner == &spl_token::id() && acc.key() == binding_account_info.key());
-                if let Some(token_account_info) = token_account_info {
-                    // 转换为 TokenAccount
-                    if let Ok(token_account) = Account::<TokenAccount>::try_from(token_account_info) {
-                        if token_account.amount > 0 {
-                            return true; // 持有NFT，保留绑定
-                        }
+        // Create a new list of valid bindings
+        let mut updated_bindings = Vec::new();
+
+        for binding_key in &registry.bindings {
+            if let Some(binding_account_info) = ctx.remaining_accounts.iter().find(|acc| acc.key() == *binding_key) {
+                if let Ok(token_account) = Account::<TokenAccount>::try_from(binding_account_info) {
+                    if token_account.amount > 0 {
+                        updated_bindings.push(*binding_key); // Retain valid binding
                     }
                 }
             }
-            false // 未找到有效绑定，删除
-        });
+        }
 
+        // Update the registry with valid bindings
+        registry.bindings = updated_bindings;
         Ok(())
     }
 }
@@ -72,44 +74,44 @@ pub mod nft_wechat_binding {
 #[derive(Accounts)]
 pub struct BindWechatId<'info> {
     #[account(mut)]
-    pub user: Signer<'info>,                             // 用户签名者
+    pub user: Signer<'info>,                             // User signing the transaction
     #[account(init, payer = user, space = 8 + 32 + 64 + 8 + 32)]
-    pub binding_account: Account<'info, BindingAccount>, // 绑定记录账户
+    pub binding_account: Account<'info, BindingAccount>, // Binding record account
     #[account(mut)]
-    pub binding_registry: Account<'info, BindingRegistry>, // 全局绑定注册表
+    pub binding_registry: Account<'info, BindingRegistry>, // Global binding registry
     #[account(constraint = token_account.amount > 0 @ CustomError::NoNFT)]
-    pub token_account: Account<'info, TokenAccount>,     // NFT Token账户
-    pub system_program: Program<'info, System>,          // 系统程序
+    pub token_account: Account<'info, TokenAccount>,     // NFT Token account
+    pub system_program: Program<'info, System>,          // System program
 }
 
 #[derive(Accounts)]
 pub struct QueryBinding<'info> {
     #[account(mut)]
-    pub binding_account: Account<'info, BindingAccount>, // 绑定记录账户
+    pub binding_account: Account<'info, BindingAccount>, // Binding record account
 }
 
 #[derive(Accounts)]
 pub struct GlobalCheck<'info> {
     #[account(mut, has_one = admin)]
-    pub binding_registry: Account<'info, BindingRegistry>, // 全局绑定注册表
-    pub admin: Signer<'info>,                              // 管理员签名
-    pub token_program: Program<'info, Token>,              // Token程序
+    pub binding_registry: Account<'info, BindingRegistry>, // Global binding registry
+    pub admin: Signer<'info>,                              // Admin signing the transaction
+    pub token_program: Program<'info, Token>,              // Token program
     #[account(address = spl_token::id())]
-    pub token_account_program: UncheckedAccount<'info>,    // Token程序账户
+    pub token_account_program: UncheckedAccount<'info>,    // Token program account
 }
 
 #[account]
 pub struct BindingAccount {
-    pub owner: Pubkey,      // 持有者地址
-    pub wechat_id: String,  // 微信ID
-    pub timestamp: i64,     // 绑定时间戳
-    pub nft_mint: Pubkey,   // NFT的Mint地址
+    pub owner: Pubkey,      // Owner's address
+    pub wechat_id: String,  // WeChat ID
+    pub timestamp: i64,     // Binding timestamp
+    pub nft_mint: Pubkey,   // Mint address of the NFT
 }
 
 #[account]
 pub struct BindingRegistry {
-    pub bindings: Vec<Pubkey>, // 所有绑定账户的PublicKey
-    pub admin: Pubkey,         // 管理员地址
+    pub bindings: Vec<Pubkey>, // All binding accounts' PublicKeys
+    pub admin: Pubkey,         // Admin's address
 }
 
 #[error_code]
